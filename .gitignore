@@ -1,0 +1,25 @@
+# Rust / Anchor build output
+target/
+.anchor/
+test-ledger/
+**/*.rs.bk
+
+# Never commit Solana authority material
+**/*keypair*.json
+**/deploy/*.json
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# JavaScript tooling
+node_modules/
+.yarn/
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
