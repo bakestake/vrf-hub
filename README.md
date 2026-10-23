@@ -1,82 +1,68 @@
 # Bakeland VRF Hub
 
-A reusable, multi-application MagicBlock VRF coordinator for Bakeland apps.
-It isolates each app into its own configuration, lane pool, and durable batch
-accumulator while sharing one program deployment.
+Bakeland VRF Hub exists to make verifiable randomness reusable across the
+Bakeland ecosystem.
+
+Without a shared coordinator, every game or application has to repeat the same
+work: deploy a program, manage MagicBlock VRF callbacks, avoid account-lock
+contention, preserve fulfilled results, and checkpoint evidence back to Solana.
+The Hub centralizes that coordination while keeping each application isolated.
+
+One deployed program can register multiple apps. Every app receives its own
+authority, lane pool, request history, and batch accumulator. Independent lanes
+allow concurrent requests, while ordered batch roots provide a durable audit
+anchor on Solana.
+
+## What the Hub is—and is not
+
+The Hub owns the randomness lifecycle:
+
+- app registration and isolated PDA derivation;
+- concurrent request lanes;
+- authenticated MagicBlock VRF callbacks;
+- atomic result consumption into an ordered batch root;
+- delayed, recorded cancellation; and
+- batched checkpointing from the Ephemeral Rollup to Solana.
+
+The Hub intentionally does **not** decide rewards, move funds, grant inventory,
+or define session and privacy policy. Those responsibilities remain with each
+consumer application. This keeps the shared program narrow, auditable, and
+useful to very different Bakeland apps without coupling their economic logic.
 
 ## Current status
 
 - Devnet program: `3AUyfXanEHxaFDGviynnoJAHgVLKxBAQP81YB3SMfJkd`
-- Four concurrent lanes completed 104/104 devnet calls across a real batch
+- Four concurrent lanes completed 104/104 calls across a real 100-result batch
   checkpoint and rollover.
-- Fulfilled results cannot be released without first being folded into the
-  app's ordered accumulator.
-- Batches seal automatically at 100 entries.
-- Mainnet is **not deployed**. A governed upgrade authority, reproducible
-  verified build, security review, failure-injection tests, and longer soak are
-  still required.
-
-The current v2 checkpoint instruction commits and undelegates after each
-100-entry batch. The proposed lower-cost production lifecycle—keepalive commits
-every 100 entries and rotation after ten commits—is not implemented in this
-revision and must be devnet-tested before mainnet.
-
-## Design
-
-- App config PDA: `['vrf_app', app_id]`
-- Reusable lane PDA: `['vrf_lane', app_id, lane_id]`
-- Batch accumulator PDA: `['vrf_batch', app_id]`
-- One unresolved request per lane; separate lanes execute concurrently.
-- Request seeds are domain-separated by program, app, lane, nonce, request ID,
-  and caller seed.
-- Cancellations require a 150-slot delay and are included in the batch history.
+- Fulfilled results cannot be released before they are folded into the app's
+  ordered accumulator.
 - App administration uses a two-step propose/accept transfer.
+- Mainnet is **not deployed**. Governance, reproducible release builds,
+  consumer integration safety, failure testing, a longer soak, and the planned
+  lower-cost batch lifecycle remain before production.
 
-Game-specific loot tables, payments, inventory writes, session policies, and
-privacy rules intentionally remain outside this hub.
+## Start here
 
-## Validate
+- [One-page overview](docs/VRF_HUB_ONE_PAGER.md) — the problem, architecture,
+  proof, capacity, and cost shape in brief.
+- [Instructions](Instructions.md) — build, deployment, app initialization,
+  request lifecycle, test harnesses, and the remaining mainnet work.
+- [Devnet evidence](docs/DEVNET_BATCH100_EVIDENCE_2026-10-21.md) — deployment,
+  transaction, batch-root, and rollover evidence.
+- [Program boundaries](docs/PROGRAM_BOUNDARIES.md) — why consumer economics,
+  session keys, privacy, and payments stay outside the Hub.
+- [Local testing notes](docs/LOCAL_TESTING.md) — detailed v2 behavior and the
+  existing development harness.
 
-Requirements follow the current MagicBlock toolchain: Rust 1.89, Solana/Agave,
-Anchor 1.0.2, and the Solana CLI.
+## Validate the repository
+
+The supported validation entry point runs native tests, strict Clippy, the
+optimized SBF build, IDL generation, and program-ID consistency checks:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\test-vrf-hub.ps1
 ```
 
-The script runs native tests, strict Clippy, the optimized SBF build, IDL
-generation, and program-ID consistency checks. Build artifacts and every
-keypair are ignored by Git.
-
-## Devnet test flow
-
-The JavaScript harnesses load Solana and MagicBlock packages from an existing
-Node project so this repository does not duplicate a package tree or contain
-RPC credentials.
-
-```powershell
-$env:BAKELAND_NODE_PROJECT='C:\path\to\node-project'
-$env:RPC_URL='<devnet RPC URL>'
-$env:NODE_OPTIONS='--use-system-ca'
-
-# One concurrent round
-$env:LANE_COUNT='4'
-$env:ITERATIONS='1'
-node .\scripts\smoke-vrf-hub-devnet.mjs
-
-# 25 rounds x 4 lanes = 100 results
-node .\scripts\stress-vrf-hub-devnet.mjs
-
-# Checkpoint the sealed batch and open the next one
-node .\scripts\checkpoint-vrf-hub-batch-devnet.mjs
-```
-
-See [local testing](docs/LOCAL_TESTING.md),
-[devnet evidence](docs/DEVNET_BATCH100_EVIDENCE_2026-10-21.md), and
-[program boundaries](docs/PROGRAM_BOUNDARIES.md) for details.
-
-## Secrets and deployment keys
-
-Program-ID, buffer, payer, and upgrade-authority keypairs are never stored in
-this repository. Maintainers must obtain them through the studio's approved
-secret-management process before deployment or upgrade operations.
+Build artifacts and all keypairs are ignored by Git. Deployment and upgrade
+keys must come from the studio's approved secret-management process; never add
+them to this repository.
