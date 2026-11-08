@@ -42,7 +42,8 @@ const payerPath = process.env.PAYER_KEYPAIR || path.join(os.homedir(), '.config'
 const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(payerPath, 'utf8'))));
 const base = new Connection(rpcUrl, 'confirmed');
 
-const appId = crypto.createHash('sha256').update('bakeland:vrf-hub-devnet-smoke:v2').digest();
+const appDomain = process.env.APP_DOMAIN || 'bakeland:vrf-hub-devnet-keepalive:v3';
+const appId = crypto.createHash('sha256').update(appDomain).digest();
 const [app] = PublicKey.findProgramAddressSync([APP_SEED, appId], PROGRAM_ID);
 const [batch] = PublicKey.findProgramAddressSync([BATCH_SEED, appId], PROGRAM_ID);
 const [programIdentity] = PublicKey.findProgramAddressSync([IDENTITY_SEED], PROGRAM_ID);
@@ -189,14 +190,15 @@ function decodeLane(data) {
 }
 
 function decodeBatch(data) {
-  if (!data || data.length < 188) throw new Error(`Invalid batch data length: ${data?.length ?? 0}`);
+  if (!data || data.length < 189) throw new Error(`Invalid batch data length: ${data?.length ?? 0}`);
   return {
     batchIndex: data.readBigUInt64LE(104),
     entryCount: data.readUInt16LE(112),
     totalEntries: data.readBigUInt64LE(114),
     batchRoot: Buffer.from(data.subarray(122, 154)),
     globalRoot: Buffer.from(data.subarray(154, 186)),
-    sealed: data[186] !== 0,
+    sessionCommits: data[186],
+    sealed: data[187] !== 0,
   };
 }
 
@@ -371,6 +373,7 @@ for (let iteration = 0; iteration < ITERATIONS; iteration += 1) {
       batchIndex: finalBatchState.batchIndex.toString(),
       entryCount: finalBatchState.entryCount,
       totalEntries: finalBatchState.totalEntries.toString(),
+      sessionCommits: finalBatchState.sessionCommits,
       sealed: finalBatchState.sealed,
       batchRootHex: finalBatchState.batchRoot.toString('hex'),
     },
@@ -393,7 +396,10 @@ console.log(JSON.stringify({
     batchIndex: finalBatchState.batchIndex.toString(),
     entryCount: finalBatchState.entryCount,
     totalEntries: finalBatchState.totalEntries.toString(),
+    sessionCommits: finalBatchState.sessionCommits,
     sealed: finalBatchState.sealed,
     batchRootHex: finalBatchState.batchRoot.toString('hex'),
   },
 }));
+
+process.exit(process.exitCode || 0);

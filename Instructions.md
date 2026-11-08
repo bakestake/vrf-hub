@@ -61,11 +61,16 @@ repository.
 
 ## 3. Deploy a reviewed build
 
-The current checked-in program ID and `Anchor.toml` entry refer to the validated
-devnet deployment:
+The validated devnet deployment remains:
 
 ```text
 3AUyfXanEHxaFDGviynnoJAHgVLKxBAQP81YB3SMfJkd
+```
+
+The checked-in production program identity is:
+
+```text
+7RmytTQ3nCN635ivpELmJQqqMK7LcALSZRi1qbqNGw8F
 ```
 
 For a fresh deployment:
@@ -92,6 +97,42 @@ Do not infer mainnet approval from the presence of a mainnet stanza in
 `Anchor.toml`. Before any mainnet deployment, explicitly decide whether the
 same address is intended and confirm that its key material, governance, and
 release artifact have passed the mainnet gates below.
+
+### Mainnet deployment inputs
+
+Prepare these before changing the source program ID or funding deployment:
+
+1. a **deployment wallet keypair** funded with the approved SOL budget;
+2. a separate **program keypair** that fixes the permanent program address;
+3. the initial **upgrade authority**, preferably the studio multisig rather
+   than an individual hot wallet;
+4. a production mainnet RPC endpoint that supports program deployment;
+5. the approved app IDs, app admins/operators, lane counts, and operational
+   fee payer; and
+6. a release record containing the source commit, toolchain versions, binary
+   size and SHA-256, program address, deployment transaction, and on-chain dump
+   comparison.
+
+The deployment wallet key alone is not sufficient: a fresh program also needs
+its own program keypair. Do not send either private key in chat or store it in
+the repository. Place key files in the approved local secret location, set
+their filesystem permissions, and pass only their paths to the validation and
+deployment commands.
+
+At the currently validated 325,240-byte binary size, mainnet rent quoted on
+6 November 2026 is about `1.6531 SOL` for ProgramData. A fresh deployment also
+needs an upload buffer of roughly the same size until finalization, so the
+wallet should have at least `3.35 SOL` available during deployment plus a small
+fee margin. Buffer rent is returned after a successful deployment; it is
+temporary liquidity, not permanent spend. A `2.3 SOL` operating budget can
+still leave roughly `0.647 SOL` after permanent program rent, but cannot by
+itself fund both accounts at the same moment.
+
+After selecting the production program keypair, update `declare_id!`, both
+`Anchor.toml` cluster entries, and script defaults; run the full validation
+again because changing the program ID changes the release binary. Deploy the
+exact resulting `.so`, dump it back from mainnet, and compare the meaningful
+binary prefix byte-for-byte before initializing any app.
 
 ## 4. Register an application
 
@@ -147,21 +188,19 @@ history and cannot silently erase a request.
 
 ## 6. Seal, checkpoint, and roll over batches
 
-The current v2 accumulator seals at exactly 100 entries. At that point:
+The accumulator seals every 100 entries. The first nine sealed checkpoints in
+a session use `checkpoint_batch`: the root is committed while the accumulator
+stays delegated, then the next 100-entry checkpoint opens immediately. On the
+tenth checkpoint, `commit_and_undelegate_batch` publishes the final root and
+returns the accumulator to Solana. The operator then:
 
-1. call `commit_and_undelegate_batch` on the sealed ER accumulator;
-2. wait for the account to return to Hub ownership on Solana;
-3. verify the Solana root exactly matches the sealed ER root;
-4. call `advance_batch(app_id)`; and
-5. delegate the empty next accumulator.
+1. verifies the Solana root matches the sealed ER root;
+2. calls `advance_session(app_id)`; and
+3. delegates the empty accumulator for the next 1,000-result session.
 
-Request lanes remain delegated during this process, so the lane pool can stay
-available while the batch proof is checkpointed.
-
-The currently proposed lower-cost lifecycle keeps the accumulator delegated
-through ten 100-result commits, then rotates after 1,000 outcomes. That design
-is **not implemented in this revision** and must be validated on devnet before
-being used for any production cost forecast.
+Request lanes remain delegated throughout. This lifecycle was validated on
+devnet with 1,000 results across four concurrent lanes, ten checkpoints, a
+clean rollover, and four post-rollover results.
 
 ## 7. Run the devnet harnesses
 
@@ -184,7 +223,7 @@ $env:ITERATIONS='1'
 node .\scripts\smoke-vrf-hub-devnet.mjs
 ```
 
-Run 25 rounds across four lanes to seal a 100-result batch:
+Run the full 1,000-result keepalive lifecycle and post-rollover check:
 
 ```powershell
 node .\scripts\stress-vrf-hub-devnet.mjs
@@ -196,9 +235,11 @@ Checkpoint the sealed root and open the next batch:
 node .\scripts\checkpoint-vrf-hub-batch-devnet.mjs
 ```
 
-The supplied harness accepts `LANE_COUNT` values from 2 through 8. Keep the
-requested iterations within the current batch's remaining capacity. Normal
-runs should consume every result; `KEEP_RESULTS=1` is diagnostic only.
+The compatibility entry point above runs the keepalive stress harness. Set a
+stable `APP_DOMAIN` so an interrupted run can be inspected or resumed; use
+`START_CHECKPOINT` only after confirming the current ER batch state. The
+supplied harness accepts `LANE_COUNT` values from 2 through 8. Normal runs
+should consume every result; `KEEP_RESULTS=1` is diagnostic only.
 
 ## 8. Consumer integration boundary
 
@@ -233,7 +274,8 @@ mainnet-ready shared service.
 
 ### Batch lifecycle and economics
 
-- Implement and devnet-test the proposed keepalive checkpoint lifecycle.
+- Keep the 1,000-result keepalive lifecycle covered by release regression and
+  longer multi-session soak tests.
 - Verify recovery when a commit, undelegation, rollover, or redelegation is
   interrupted.
 - Recalculate rent, Solana fees, ER fees, and operating cost using current
@@ -259,6 +301,6 @@ mainnet-ready shared service.
 - Publish an incident, rollback, and upgrade procedure with named operators.
 
 Mainnet approval should require all release gates to have dated evidence. The
-existing [devnet evidence](docs/DEVNET_BATCH100_EVIDENCE_2026-10-21.md) proves
-the four-lane request, 100-result checkpoint, and rollover path; it is not a
-security audit or production soak.
+current [keepalive evidence](docs/DEVNET_KEEPALIVE1000_EVIDENCE_2026-11-06.md)
+proves the four-lane, 1,000-result session and rollover path; it is not a
+security audit or permissionless production soak.

@@ -8,7 +8,7 @@ skip-lint = false
 bakeland_vrf_hub = "3AUyfXanEHxaFDGviynnoJAHgVLKxBAQP81YB3SMfJkd"
 
 [programs.mainnet]
-bakeland_vrf_hub = "3AUyfXanEHxaFDGviynnoJAHgVLKxBAQP81YB3SMfJkd"
+bakeland_vrf_hub = "7RmytTQ3nCN635ivpELmJQqqMK7LcALSZRi1qbqNGw8F"
 
 [registry]
 url = "https://api.apr.dev"

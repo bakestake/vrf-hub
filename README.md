@@ -32,14 +32,17 @@ useful to very different Bakeland apps without coupling their economic logic.
 ## Current status
 
 - Devnet program: `3AUyfXanEHxaFDGviynnoJAHgVLKxBAQP81YB3SMfJkd`
-- Four concurrent lanes completed 104/104 calls across a real 100-result batch
-  checkpoint and rollover.
+- Reserved mainnet program: `7RmytTQ3nCN635ivpELmJQqqMK7LcALSZRi1qbqNGw8F`
+- Four concurrent lanes completed 1,004/1,004 calls across ten 100-result
+  checkpoints, a final undelegation, session rollover, and post-rollover use.
+- The accumulator remains delegated for 1,000 results, reducing a 10,000-call
+  workload to ten delegation sessions and 100 checkpoints.
 - Fulfilled results cannot be released before they are folded into the app's
   ordered accumulator.
 - App administration uses a two-step propose/accept transfer.
-- Mainnet is **not deployed**. Governance, reproducible release builds,
-  consumer integration safety, failure testing, a longer soak, and the planned
-  lower-cost batch lifecycle remain before production.
+- Mainnet is **not deployed**. The lower-cost lifecycle is devnet-validated;
+  production still requires a final program identity, governed authorities,
+  a reviewed release build, consumer safety review, and operations setup.
 
 ## Start here
 
@@ -49,6 +52,8 @@ useful to very different Bakeland apps without coupling their economic logic.
   request lifecycle, test harnesses, and the remaining mainnet work.
 - [Devnet evidence](docs/DEVNET_BATCH100_EVIDENCE_2026-10-21.md) — deployment,
   transaction, batch-root, and rollover evidence.
+- [Keepalive lifecycle evidence](docs/DEVNET_KEEPALIVE1000_EVIDENCE_2026-11-06.md)
+  — the 1,004-call concurrent lifecycle and release artifact proof.
 - [Program boundaries](docs/PROGRAM_BOUNDARIES.md) — why consumer economics,
   session keys, privacy, and payments stay outside the Hub.
 - [Local testing notes](docs/LOCAL_TESTING.md) — detailed v2 behavior and the

@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$expectedProgramId = '3AUyfXanEHxaFDGviynnoJAHgVLKxBAQP81YB3SMfJkd'
+$expectedProgramId = '7RmytTQ3nCN635ivpELmJQqqMK7LcALSZRi1qbqNGw8F'
 $binaryPath = Join-Path $repoRoot 'target\deploy\bakeland_vrf_hub.so'
 $idlPath = Join-Path $repoRoot 'target\idl\bakeland_vrf_hub.json'
 $sourcePath = Join-Path $repoRoot 'programs\bakeland-vrf-hub\src\lib.rs'
@@ -22,7 +22,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Strict Clippy validation failed.' }
 
     if (-not $SkipSbf) {
-        cargo build-sbf --manifest-path (Join-Path $repoRoot 'programs\bakeland-vrf-hub\Cargo.toml') --sbf-out-dir (Join-Path $repoRoot 'target\deploy') --optimize-size
+        cargo build-sbf --manifest-path (Join-Path $repoRoot 'programs\bakeland-vrf-hub\Cargo.toml') --sbf-out-dir (Join-Path $repoRoot 'target\deploy')
         if ($LASTEXITCODE -ne 0) { throw 'Optimized SBF build failed.' }
         & $anchorCli idl build -p bakeland_vrf_hub -o $idlPath
         if ($LASTEXITCODE -ne 0) { throw 'Anchor IDL build failed.' }

@@ -14,7 +14,7 @@ use ephemeral_rollups_sdk::{
 };
 use solana_sha256_hasher::hashv;
 
-declare_id!("3AUyfXanEHxaFDGviynnoJAHgVLKxBAQP81YB3SMfJkd");
+declare_id!("7RmytTQ3nCN635ivpELmJQqqMK7LcALSZRi1qbqNGw8F");
 
 pub const APP_SEED: &[u8] = b"vrf_app";
 pub const LANE_SEED: &[u8] = b"vrf_lane";
@@ -25,6 +25,10 @@ pub const BATCH_DOMAIN: &[u8] = b"bakeland-vrf-hub:batch:v2";
 pub const GLOBAL_DOMAIN: &[u8] = b"bakeland-vrf-hub:global:v2";
 pub const MAX_LANES_PER_APP: u16 = 64;
 pub const BATCH_SIZE: u16 = 100;
+/// Nine keepalive commits followed by one final commit-and-undelegate keep a
+/// delegation session within MagicBlock's ten-commit limit.
+pub const CHECKPOINTS_PER_SESSION: u8 = 10;
+pub const RESULTS_PER_SESSION: u64 = BATCH_SIZE as u64 * CHECKPOINTS_PER_SESSION as u64;
 /// A cancelled request is committed to the batch like any other result. The
 /// delay prevents an operator from cheaply discarding a request immediately.
 pub const MIN_CANCEL_DELAY_SLOTS: u64 = 150;
@@ -186,6 +190,7 @@ pub mod bakeland_vrf_hub {
         batch.total_entries = 0;
         batch.batch_root = [0; 32];
         batch.global_root = [0; 32];
+        batch.session_commits = 0;
         batch.sealed = false;
         batch.bump = ctx.bumps.batch;
 
@@ -391,46 +396,104 @@ pub mod bakeland_vrf_hub {
         Ok(())
     }
 
-    /// Publishes the sealed 100-result (or explicitly sealed partial) batch to
-    /// Solana and ends only the accumulator's delegation session. Request lanes
-    /// remain delegated and available.
-    pub fn commit_and_undelegate_batch(ctx: Context<CommitBatch>) -> Result<()> {
-        let batch = &ctx.accounts.batch;
-        require_keys_eq!(
-            batch.authority,
-            ctx.accounts.authority.key(),
-            VrfHubError::Unauthorized
-        );
-        require!(batch.sealed, VrfHubError::BatchNotSealed);
+    /// Commits one completed 100-result checkpoint while keeping the batch
+    /// accumulator delegated. The post-commit ER state opens the next
+    /// checkpoint and retains the cumulative global root.
+    pub fn checkpoint_batch(ctx: Context<CommitBatch>) -> Result<()> {
+        {
+            let batch = &mut ctx.accounts.batch;
+            require_keys_eq!(
+                batch.authority,
+                ctx.accounts.authority.key(),
+                VrfHubError::Unauthorized
+            );
+            require!(batch.sealed, VrfHubError::BatchNotSealed);
+            require!(
+                batch.session_commits < CHECKPOINTS_PER_SESSION - 1,
+                VrfHubError::FinalCheckpointRequired
+            );
+
+            batch.session_commits = batch
+                .session_commits
+                .checked_add(1)
+                .ok_or(VrfHubError::MathOverflow)?;
+            open_next_checkpoint(batch)?;
+        }
 
         MagicIntentBundleBuilder::new(
             ctx.accounts.authority.to_account_info(),
             ctx.accounts.magic_context.to_account_info(),
             ctx.accounts.magic_program.to_account_info(),
         )
-        .commit_and_undelegate(&[batch.to_account_info()])
+        .commit(&[ctx.accounts.batch.to_account_info()])
         .build_and_invoke()?;
         Ok(())
     }
 
-    /// Opens the next batch after the previous sealed state has been confirmed
-    /// on Solana and the accumulator is back on the base layer.
-    pub fn advance_batch(ctx: Context<AdvanceBatch>, _app_id: [u8; 32]) -> Result<()> {
+    /// Publishes the tenth 100-result checkpoint and ends only the accumulator's
+    /// delegation session. Request lanes remain delegated and available.
+    pub fn commit_and_undelegate_batch(ctx: Context<FinalizeBatchSession>) -> Result<()> {
+        let batch_info = ctx.accounts.batch.to_account_info();
+        {
+            // Undelegation changes the account owner during the CPI. Persist the
+            // final state first so Anchor never writes after ownership changes.
+            let mut account_data = batch_info.try_borrow_mut_data()?;
+            let mut readable: &[u8] = &account_data;
+            let mut batch = BatchAccumulator::try_deserialize(&mut readable)?;
+            require_keys_eq!(
+                batch.authority,
+                ctx.accounts.authority.key(),
+                VrfHubError::Unauthorized
+            );
+            require!(batch.sealed, VrfHubError::BatchNotSealed);
+            require!(
+                batch.session_commits == CHECKPOINTS_PER_SESSION - 1,
+                VrfHubError::SessionNotReady
+            );
+            batch.session_commits = CHECKPOINTS_PER_SESSION;
+
+            let expected_batch = Pubkey::create_program_address(
+                &[BATCH_SEED, batch.app_id.as_ref(), &[batch.bump]],
+                ctx.program_id,
+            )
+            .map_err(|_| error!(VrfHubError::InvalidBatchAddress))?;
+            require_keys_eq!(
+                expected_batch,
+                batch_info.key(),
+                VrfHubError::InvalidBatchAddress
+            );
+
+            let mut writable: &mut [u8] = &mut account_data;
+            batch.try_serialize(&mut writable)?;
+        }
+
+        MagicIntentBundleBuilder::new(
+            ctx.accounts.authority.to_account_info(),
+            ctx.accounts.magic_context.to_account_info(),
+            ctx.accounts.magic_program.to_account_info(),
+        )
+        .commit_and_undelegate(&[batch_info])
+        .build_and_invoke()?;
+        Ok(())
+    }
+
+    /// Opens the first checkpoint of the next 1,000-result delegation session
+    /// after the completed accumulator is back on the base layer.
+    pub fn advance_session(ctx: Context<AdvanceBatch>, _app_id: [u8; 32]) -> Result<()> {
         require!(
             ctx.accounts.authority.key() == ctx.accounts.batch.authority
                 || ctx.accounts.authority.key() == ctx.accounts.app.admin,
             VrfHubError::Unauthorized
         );
         require!(ctx.accounts.batch.sealed, VrfHubError::BatchNotSealed);
+        require!(
+            ctx.accounts.batch.session_commits == CHECKPOINTS_PER_SESSION,
+            VrfHubError::SessionNotComplete
+        );
 
         let batch = &mut ctx.accounts.batch;
-        batch.batch_index = batch
-            .batch_index
-            .checked_add(1)
-            .ok_or(VrfHubError::MathOverflow)?;
-        batch.entry_count = 0;
-        batch.batch_root = [0; 32];
-        batch.sealed = false;
+        open_next_checkpoint(batch)?;
+        batch.session_commits = 0;
         batch.authority = ctx.accounts.app.operator;
         Ok(())
     }
@@ -465,6 +528,10 @@ fn append_batch_entry(
     require!(batch.app_id == lane.app_id, VrfHubError::AppMismatch);
     require_keys_eq!(batch.authority, lane.authority, VrfHubError::Unauthorized);
     require!(!batch.sealed, VrfHubError::BatchSealed);
+    require!(
+        batch.session_commits < CHECKPOINTS_PER_SESSION,
+        VrfHubError::SessionComplete
+    );
 
     let entry_position = batch.entry_count;
     let leaf = hashv(&[
@@ -517,6 +584,17 @@ fn seal_batch(batch: &mut Account<BatchAccumulator>) -> Result<()> {
     );
     batch.sealed = true;
 
+    Ok(())
+}
+
+fn open_next_checkpoint(batch: &mut BatchAccumulator) -> Result<()> {
+    batch.batch_index = batch
+        .batch_index
+        .checked_add(1)
+        .ok_or(VrfHubError::MathOverflow)?;
+    batch.entry_count = 0;
+    batch.batch_root = [0; 32];
+    batch.sealed = false;
     Ok(())
 }
 
@@ -744,6 +822,17 @@ pub struct CommitBatch<'info> {
     pub batch: Account<'info, BatchAccumulator>,
 }
 
+#[commit]
+#[derive(Accounts)]
+pub struct FinalizeBatchSession<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    /// CHECK: Owner is constrained here; discriminator, PDA, and authority are
+    /// validated before the final state is serialized.
+    #[account(mut, owner = crate::ID)]
+    pub batch: UncheckedAccount<'info>,
+}
+
 #[derive(Accounts)]
 #[instruction(app_id: [u8; 32])]
 pub struct AdvanceBatch<'info> {
@@ -805,12 +894,13 @@ pub struct BatchAccumulator {
     pub total_entries: u64,
     pub batch_root: [u8; 32],
     pub global_root: [u8; 32],
+    pub session_commits: u8,
     pub sealed: bool,
     pub bump: u8,
 }
 
 impl BatchAccumulator {
-    pub const SPACE: usize = 8 + 32 + 32 + 32 + 8 + 2 + 8 + 32 + 32 + 1 + 1;
+    pub const SPACE: usize = 8 + 32 + 32 + 32 + 8 + 2 + 8 + 32 + 32 + 1 + 1 + 1;
 }
 
 #[error_code]
@@ -829,6 +919,8 @@ pub enum VrfHubError {
     Unauthorized,
     #[msg("App mismatch")]
     AppMismatch,
+    #[msg("Invalid batch address")]
+    InvalidBatchAddress,
     #[msg("Invalid request ID")]
     InvalidRequestId,
     #[msg("Lane busy")]
@@ -845,6 +937,14 @@ pub enum VrfHubError {
     BatchSealed,
     #[msg("Batch not sealed")]
     BatchNotSealed,
+    #[msg("The tenth checkpoint must commit and undelegate")]
+    FinalCheckpointRequired,
+    #[msg("Nine keepalive checkpoints are required before session finalization")]
+    SessionNotReady,
+    #[msg("The delegation session is complete")]
+    SessionComplete,
+    #[msg("The delegation session has not completed ten checkpoints")]
+    SessionNotComplete,
     #[msg("Cancellation too early")]
     CancellationTooEarly,
     #[msg("Arithmetic overflow")]
@@ -880,7 +980,8 @@ mod tests {
     fn account_sizes_include_anchor_discriminator() {
         assert_eq!(AppConfig::SPACE, 140);
         assert_eq!(RandomnessLane::SPACE, 229);
-        assert_eq!(BatchAccumulator::SPACE, 188);
+        assert_eq!(BatchAccumulator::SPACE, 189);
+        assert_eq!(RESULTS_PER_SESSION, 1_000);
     }
 
     #[test]
@@ -902,5 +1003,32 @@ mod tests {
         let second = fold_global_root(app, 1, 100, 200, first, [2; 32]);
         assert_ne!(first, second);
         assert_ne!(second, fold_global_root(app, 1, 99, 199, first, [2; 32]));
+    }
+
+    #[test]
+    fn checkpoint_state_advances_without_losing_global_history() {
+        let global_root = [7; 32];
+        let mut batch = BatchAccumulator {
+            app: Pubkey::new_unique(),
+            app_id: [5; 32],
+            authority: Pubkey::new_unique(),
+            batch_index: 4,
+            entry_count: BATCH_SIZE,
+            total_entries: 500,
+            batch_root: [9; 32],
+            global_root,
+            session_commits: 5,
+            sealed: true,
+            bump: 1,
+        };
+
+        open_next_checkpoint(&mut batch).unwrap();
+        assert_eq!(batch.batch_index, 5);
+        assert_eq!(batch.entry_count, 0);
+        assert_eq!(batch.total_entries, 500);
+        assert_eq!(batch.batch_root, [0; 32]);
+        assert_eq!(batch.global_root, global_root);
+        assert_eq!(batch.session_commits, 5);
+        assert!(!batch.sealed);
     }
 }

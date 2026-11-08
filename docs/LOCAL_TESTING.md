@@ -102,10 +102,10 @@ $env:LANE_COUNT='4'
 $env:ITERATIONS='1'
 node .\scripts\smoke-vrf-hub-devnet.mjs
 
-# 25 rounds x 4 lanes = one sealed 100-entry batch
+# Ten 100-entry checkpoints, final rollover, and post-rollover calls
 node .\scripts\stress-vrf-hub-devnet.mjs
 
-# Commit the sealed root, advance, and delegate the next batch
+# Commit one sealed checkpoint; the tenth also rolls the session
 node .\scripts\checkpoint-vrf-hub-batch-devnet.mjs
 ```
 
@@ -126,5 +126,5 @@ audit anchor.
 
 Before mainnet, move upgrade authority and app admin roles to the intended
 governance/multisig, run a longer soak with more lanes and forced failure cases,
-and deploy the exact reviewed binary. Devnet deployment evidence is in
-`DEVNET_BATCH100_EVIDENCE_2026-10-21.md`.
+and deploy the exact reviewed binary. Current lifecycle evidence is in
+`DEVNET_KEEPALIVE1000_EVIDENCE_2026-11-06.md`.

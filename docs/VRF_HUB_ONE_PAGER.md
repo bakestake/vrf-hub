@@ -43,8 +43,8 @@ ordered batch history.
 | Lanes per app | Up to 64 |
 | Requests in flight | Up to one per lane |
 | Planning range | 128–640 requests/second at an illustrative 500–100 ms lane cycle |
-| Devnet result | 104/104 calls across four concurrent lanes |
-| Durable proof | One sealed 100-result batch checkpointed to Solana, followed by a successful rollover |
+| Devnet result | 1,004/1,004 calls across four concurrent lanes |
+| Durable proof | Ten 100-result checkpoints in one session, final undelegation, rollover, and post-rollover use |
 
 The throughput range is a planning illustration, not a benchmark. Actual
 capacity depends on callback latency, RPC quality, operator behavior, consumer
@@ -54,15 +54,15 @@ work, and the number of active apps.
 
 | Model | Batch lifecycle | Illustrative ER charges |
 | --- | --- | ---: |
-| Current v2 | Undelegate the batch account every 100 results | About `0.30 SOL` |
-| Proposed lifecycle | Ten 100-result commits, then rotate after 1,000 results | About `0.12 SOL`, or `$12` at `$100/SOL` |
+| Legacy lifecycle | Undelegate the batch account every 100 results | About `0.30 SOL` |
+| Validated keepalive lifecycle | Ten 100-result commits, then rotate after 1,000 results | About `0.12 SOL`, or `$12` at `$100/SOL` |
 
 The estimate uses MagicBlock pricing reviewed on 23 October 2026: VRF requests
 and normal ER transactions were listed as free, with `0.003 SOL` for a
 delegation session and `0.001 SOL` for each commit after the first. It excludes
 Solana transaction fees, account rent, setup, eventual lane undelegation, and
-operations. Pricing can change, and the proposed lifecycle is not implemented
-in the current revision.
+operations. Pricing can change; the keepalive lifecycle was validated on
+devnet on 6 November 2026.
 
 ## Recommended position
 
@@ -76,4 +76,4 @@ multi-app load test.
 
 For deployment, integration, test commands, and the full mainnet checklist, see
 [Instructions.md](../Instructions.md). Devnet transactions and batch roots are
-recorded in [the deployment evidence](DEVNET_BATCH100_EVIDENCE_2026-10-21.md).
+recorded in [the keepalive evidence](DEVNET_KEEPALIVE1000_EVIDENCE_2026-11-06.md).
