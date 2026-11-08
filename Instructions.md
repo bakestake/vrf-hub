@@ -73,6 +73,9 @@ The checked-in production program identity is:
 7RmytTQ3nCN635ivpELmJQqqMK7LcALSZRi1qbqNGw8F
 ```
 
+It was deployed and byte-verified on mainnet on 8 November 2026. App
+initialization and production traffic remain separate, explicit steps.
+
 For a fresh deployment:
 
 1. obtain the intended program and upgrade-authority keys through approved
