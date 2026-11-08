@@ -35,7 +35,14 @@ const APP_SEED = Buffer.from('vrf_app');
 const LANE_SEED = Buffer.from('vrf_lane');
 const BATCH_SEED = Buffer.from('vrf_batch');
 const IDENTITY_SEED = Buffer.from('identity');
-const LANE_COUNT = Math.min(8, Math.max(2, Number(process.env.LANE_COUNT) || 3));
+const TARGET_CLUSTER = process.env.TARGET_CLUSTER || 'devnet';
+const MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
+const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
+if (TARGET_CLUSTER === 'mainnet-beta' && process.env.CONFIRM_MAINNET !== 'RUN_BAKELAND_VRF_CANARY') {
+  throw new Error('Set CONFIRM_MAINNET=RUN_BAKELAND_VRF_CANARY for a mainnet canary.');
+}
+const LANE_COUNT = Math.min(8, Math.max(1, Number(process.env.LANE_COUNT) || 3));
+const LANE_START = Math.max(0, Number(process.env.LANE_START) || 0);
 const ITERATIONS = Math.max(1, Number(process.env.ITERATIONS) || 1);
 const FULFILL_TIMEOUT_MS = Math.max(10_000, Number(process.env.FULFILL_TIMEOUT_MS) || 45_000);
 const payerPath = process.env.PAYER_KEYPAIR || path.join(os.homedir(), '.config', 'solana', 'id.json');
@@ -210,12 +217,10 @@ async function send(connection, instruction) {
 }
 
 async function findEr(lanes) {
-  const endpoints = [
-    process.env.ER_ENDPOINT,
-    'https://devnet-as.magicblock.app/',
-    'https://devnet-eu.magicblock.app/',
-    'https://devnet-us.magicblock.app/',
-  ].filter(Boolean);
+  const endpoints = TARGET_CLUSTER === 'mainnet-beta'
+    ? [process.env.ER_ENDPOINT, 'https://mainnet.magicblock.app/'].filter(Boolean)
+    : [process.env.ER_ENDPOINT, 'https://devnet-as.magicblock.app/', 'https://devnet-eu.magicblock.app/',
+      'https://devnet-us.magicblock.app/'].filter(Boolean);
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     for (const endpoint of endpoints) {
@@ -249,7 +254,13 @@ async function waitForResults(connection, expected) {
   return results;
 }
 
-const lanes = Array.from({ length: LANE_COUNT }, (_, laneId) => ({ laneId, lane: laneAddress(laneId) }));
+const lanes = Array.from({ length: LANE_COUNT }, (_, index) => {
+  const laneId = LANE_START + index;
+  return { laneId, lane: laneAddress(laneId) };
+});
+const genesis = await base.getGenesisHash();
+const expectedGenesis = TARGET_CLUSTER === 'mainnet-beta' ? MAINNET_GENESIS : DEVNET_GENESIS;
+if (genesis !== expectedGenesis) throw new Error(`RPC genesis ${genesis} does not match ${TARGET_CLUSTER}.`);
 if (!(await base.getAccountInfo(app, 'confirmed'))) {
   const signature = await send(base, initializeAppInstruction());
   console.log(JSON.stringify({ phase: 'initialize-app', signature, app: app.toBase58() }));
